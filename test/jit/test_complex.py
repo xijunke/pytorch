@@ -2,6 +2,7 @@ import torch
 import os
 import sys
 from torch.testing._internal.jit_utils import JitTestCase
+from typing import List
 
 # Make the helper files in test/ importable
 pytorch_test_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -13,6 +14,13 @@ class TestComplex(JitTestCase):
             return a
 
         self.checkScript(fn, (3 + 5j,))
+
+    def test_complexlist(self):
+        def fn(a: List[complex], idx: int):
+            return a[idx]
+
+        input = [1j, 2, 3 + 4j, -5, -7j]
+        self.checkScript(fn, (input, 2))
 
     def test_pickle(self):
         class ComplexModule(torch.jit.ScriptModule):
