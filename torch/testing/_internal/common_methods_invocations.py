@@ -15,8 +15,8 @@ from typing import List, Tuple, Dict, Any
 from torch.testing import \
     (make_non_contiguous, _dispatch_dtypes, floating_types, floating_types_and,
      floating_and_complex_types, floating_and_complex_types_and,
-     all_types_and_complex_and, all_types_and, all_types_and_complex, all_types,
-     integral_types)
+     all_types_and_complex_and, all_types_and, all_types_and_complex,
+     integral_types, complex_types)
 from torch.testing._internal.common_device_type import \
     (skipIf, skipCUDAIfNoMagma, skipCPUIfNoLapack, skipCPUIfNoMkl,
      skipCUDAIfRocm, expectedAlertNondeterministic, precisionOverride)
@@ -780,11 +780,11 @@ class ForeachFuncInfo(OpInfo):
                  method,
                  inplace,
                  ref,  # torch reference function
-                 dtypes=floating_and_complex_types(),
-                 dtypesIfCPU=all_types_and_complex(),
-                 dtypesIfCUDA=floating_and_complex_types_and(torch.half),
+                 ref_name,  # torch reference function name
+                 dtypes=all_types_and_complex_and(torch.bool, torch.half, torch.bfloat16),
+                 dtypesIfCPU=all_types_and_complex_and(torch.bool, torch.half, torch.bfloat16),
+                 dtypesIfCUDA=all_types_and_complex_and(torch.bool, torch.half, torch.bfloat16),
                  dtypesIfROCM=None,
-                 safe_casts_outputs=True,
                  sample_inputs_func=sample_inputs_foreach,
                  **kwargs):
         super(ForeachFuncInfo, self).__init__(name,
@@ -792,12 +792,12 @@ class ForeachFuncInfo(OpInfo):
                                               dtypesIfCPU=dtypesIfCPU,
                                               dtypesIfCUDA=dtypesIfCUDA,
                                               dtypesIfROCM=dtypesIfROCM,
-                                              safe_casts_outputs=safe_casts_outputs,
                                               sample_inputs_func=sample_inputs_func,
                                               **kwargs)
         self.method_variant = method
         self.inplace_variant = inplace
         self.ref = ref
+        self.ref_name = ref_name
 
 class ForeachBinaryFuncInfo(OpInfo):
     """Early version of a specialized OpInfo for foreach binary functions"""
@@ -811,7 +811,6 @@ class ForeachBinaryFuncInfo(OpInfo):
                  dtypesIfCPU=all_types_and(torch.bool, torch.half, torch.bfloat16),
                  dtypesIfCUDA=all_types_and(torch.bool, torch.half, torch.bfloat16),
                  dtypesIfROCM=None,
-                 safe_casts_outputs=False,
                  sample_inputs_func=sample_inputs_foreach,
                  supports_alpha_param=False,
                  **kwargs):
@@ -820,7 +819,6 @@ class ForeachBinaryFuncInfo(OpInfo):
                                                     dtypesIfCPU=dtypesIfCPU,
                                                     dtypesIfCUDA=dtypesIfCUDA,
                                                     dtypesIfROCM=dtypesIfROCM,
-                                                    safe_casts_outputs=safe_casts_outputs,
                                                     sample_inputs_func=sample_inputs_func,
                                                     **kwargs)
         self.method_variant = method
@@ -1065,17 +1063,13 @@ foreach_pointwise_op_db: List[OpInfo] = [
                     method=torch._foreach_addcmul,
                     inplace=torch._foreach_addcmul_,
                     ref=torch.addcmul,
-                    dtypes=floating_and_complex_types(),
-                    dtypesIfCPU=floating_and_complex_types(),
-                    dtypesIfCUDA=floating_and_complex_types_and(torch.bfloat16, torch.half)),
+                    ref_name="addcmul"),
 
     ForeachFuncInfo('_foreach_addcdiv',
                     method=torch._foreach_addcdiv,
                     inplace=torch._foreach_addcdiv_,
                     ref=torch.addcdiv,
-                    dtypes=floating_and_complex_types(),
-                    dtypesIfCPU=floating_and_complex_types(),
-                    dtypesIfCUDA=floating_and_complex_types_and(torch.bfloat16, torch.half)),
+                    ref_name="addcdiv"),
 ]
 
 # Foreach min/max ops
@@ -1084,30 +1078,28 @@ foreach_min_max_op_db: List[OpInfo] = [
                     method=torch._foreach_maximum,
                     inplace=None,
                     ref=torch.max,
-                    dtypes=floating_types_and(torch.bfloat16, torch.bool, torch.half),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16, torch.bool, torch.half),
-                    dtypesIfCUDA=floating_types_and(torch.bfloat16, torch.bool, torch.half),
+                    ref_name="max",
                     skips=(
                         # cannot convert float infinity to integer
+                        # not implemented for ComplexFloat and ComplexDouble
                         SkipInfo('TestForeach', 'test_min_max_inf_nan',
-                                 device_type='cpu', dtypes=[*integral_types()]),
+                                 device_type='cpu', dtypes=[*integral_types(), *complex_types()]),
                         SkipInfo('TestForeach', 'test_min_max_inf_nan',
-                                 device_type='cuda', dtypes=[*integral_types()]),
+                                 device_type='cuda', dtypes=[*integral_types(), *complex_types()]),
                     )),
 
     ForeachFuncInfo('_foreach_minimum',
                     method=torch._foreach_minimum,
                     inplace=None,
                     ref=torch.min,
-                    dtypes=floating_types_and(torch.bfloat16, torch.bool, torch.half),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16, torch.bool, torch.half),
-                    dtypesIfCUDA=floating_types_and(torch.bfloat16, torch.bool, torch.half),
+                    ref_name="min",
                     skips=(
                         # cannot convert float infinity to integer
+                        # not implemented for ComplexFloat and ComplexDouble
                         SkipInfo('TestForeach', 'test_min_max_inf_nan',
-                                 device_type='cpu', dtypes=[*integral_types()]),
+                                 device_type='cpu', dtypes=[*integral_types(), *complex_types()]),
                         SkipInfo('TestForeach', 'test_min_max_inf_nan',
-                                 device_type='cuda', dtypes=[*integral_types()]),
+                                 device_type='cuda', dtypes=[*integral_types(), *complex_types()]),
                     )),
 ]
 
@@ -1137,8 +1129,7 @@ foreach_binary_op_db: List[OpInfo] = [
                           method=torch._foreach_div,
                           inplace=torch._foreach_div_,
                           ref=torch.div,
-                          ref_name='div',
-                          safe_casts_outputs=True),
+                          ref_name='div'),
 ]
 
 # Foreach unary ops
@@ -1147,180 +1138,163 @@ foreach_unary_op_db: List[OpInfo] = [
                     method=torch._foreach_neg,
                     inplace=torch._foreach_neg_,
                     ref=torch.neg,
-                    dtypes=all_types_and_complex(),
-                    dtypesIfCPU=all_types_and_complex(),
-                    dtypesIfCUDA=all_types_and_complex(),
-                    sample_inputs_func=sample_inputs_foreach,
-                    safe_casts_outputs=False),
+                    ref_name="neg"),
 
     ForeachFuncInfo('_foreach_sqrt',
                     method=torch._foreach_sqrt,
                     inplace=torch._foreach_sqrt_,
                     ref=torch.sqrt,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_and_complex_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_and_complex_types_and(torch.half)),
+                    ref_name="sqrt"),
 
     ForeachFuncInfo('_foreach_exp',
                     method=torch._foreach_exp,
                     inplace=torch._foreach_exp_,
-                    ref=torch.exp),
+                    ref=torch.exp,
+                    ref_name="exp"),
 
     ForeachFuncInfo('_foreach_acos',
                     method=torch._foreach_acos,
                     inplace=torch._foreach_acos_,
-                    ref=torch.acos),
+                    ref=torch.acos,
+                    ref_name="acos"),
 
     ForeachFuncInfo('_foreach_asin',
                     method=torch._foreach_asin,
                     inplace=torch._foreach_asin_,
-                    ref=torch.asin),
+                    ref=torch.asin,
+                    ref_name="asin"),
 
     ForeachFuncInfo('_foreach_atan',
                     method=torch._foreach_atan,
                     inplace=torch._foreach_atan_,
-                    ref=torch.atan),
+                    ref=torch.atan,
+                    ref_name="atan"),
 
     ForeachFuncInfo('_foreach_cos',
                     method=torch._foreach_cos,
                     inplace=torch._foreach_cos_,
-                    ref=torch.cos),
+                    ref=torch.cos,
+                    ref_name="cos"),
 
     ForeachFuncInfo('_foreach_cosh',
                     method=torch._foreach_cosh,
                     inplace=torch._foreach_cosh_,
-                    ref=torch.cosh),
+                    ref=torch.cosh,
+                    ref_name="cosh"),
 
     ForeachFuncInfo('_foreach_log',
                     method=torch._foreach_log,
                     inplace=torch._foreach_log_,
-                    ref=torch.log),
+                    ref=torch.log,
+                    ref_name="log"),
 
     ForeachFuncInfo('_foreach_log10',
                     method=torch._foreach_log10,
                     inplace=torch._foreach_log10_,
-                    ref=torch.log10),
+                    ref=torch.log10,
+                    ref_name="log10"),
 
     ForeachFuncInfo('_foreach_log2',
                     method=torch._foreach_log2,
                     inplace=torch._foreach_log2_,
-                    ref=torch.log2),
+                    ref=torch.log2,
+                    ref_name="log2"),
 
     ForeachFuncInfo('_foreach_tan',
                     method=torch._foreach_tan,
                     inplace=torch._foreach_tan_,
-                    ref=torch.tan),
+                    ref=torch.tan,
+                    ref_name="tan"),
 
     ForeachFuncInfo('_foreach_tanh',
                     method=torch._foreach_tanh,
                     inplace=torch._foreach_tanh_,
-                    ref=torch.tanh),
+                    ref=torch.tanh,
+                    ref_name="tanh"),
 
     ForeachFuncInfo('_foreach_sin',
                     method=torch._foreach_sin,
                     inplace=torch._foreach_sin_,
-                    ref=torch.sin),
+                    ref=torch.sin,
+                    ref_name="sin"),
 
     ForeachFuncInfo('_foreach_sinh',
                     method=torch._foreach_sinh,
                     inplace=torch._foreach_sinh_,
-                    ref=torch.sinh),
+                    ref=torch.sinh,
+                    ref_name="sinh"),
 
     ForeachFuncInfo('_foreach_ceil',
                     method=torch._foreach_ceil,
                     inplace=torch._foreach_ceil_,
                     ref=torch.ceil,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="ceil"),
 
     ForeachFuncInfo('_foreach_erf',
                     method=torch._foreach_erf,
                     inplace=torch._foreach_erf_,
                     ref=torch.erf,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="erf"),
 
     ForeachFuncInfo('_foreach_erfc',
                     method=torch._foreach_erfc,
                     inplace=torch._foreach_erfc_,
                     ref=torch.erfc,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="erfc"),
 
     ForeachFuncInfo('_foreach_expm1',
                     method=torch._foreach_expm1,
                     inplace=torch._foreach_expm1_,
                     ref=torch.expm1,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="expm1"),
 
     ForeachFuncInfo('_foreach_floor',
                     method=torch._foreach_floor,
                     inplace=torch._foreach_floor_,
                     ref=torch.floor,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="floor"),
 
     ForeachFuncInfo('_foreach_log1p',
                     method=torch._foreach_log1p,
                     inplace=torch._foreach_log1p_,
                     ref=torch.log1p,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="log1p"),
 
     ForeachFuncInfo('_foreach_round',
                     method=torch._foreach_round,
                     inplace=torch._foreach_round_,
                     ref=torch.round,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="round"),
 
     ForeachFuncInfo('_foreach_frac',
                     method=torch._foreach_frac,
                     inplace=torch._foreach_frac_,
                     ref=torch.frac,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="frac"),
 
     ForeachFuncInfo('_foreach_reciprocal',
                     method=torch._foreach_reciprocal,
                     inplace=torch._foreach_reciprocal_,
                     ref=torch.reciprocal,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="reciprocal"),
 
     ForeachFuncInfo('_foreach_sigmoid',
                     method=torch._foreach_sigmoid,
                     inplace=torch._foreach_sigmoid_,
                     ref=torch.sigmoid,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="sigmoid"),
 
     ForeachFuncInfo('_foreach_trunc',
                     method=torch._foreach_trunc,
                     inplace=torch._foreach_trunc_,
                     ref=torch.trunc,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_types_and(torch.bfloat16),
-                    dtypesIfCUDA=floating_types_and(torch.half)),
+                    ref_name="trunc"),
 
     ForeachFuncInfo('_foreach_abs',
                     method=torch._foreach_abs,
                     inplace=torch._foreach_abs_,
                     ref=torch.abs,
-                    dtypes=floating_types(),
-                    dtypesIfCPU=floating_and_complex_types_and(torch.bfloat16, torch.half),
-                    dtypesIfCUDA=floating_and_complex_types_and(torch.bfloat16, torch.half)),
+                    ref_name="abs"),
 ]
 
 # Operator database (sorted alphabetically)
