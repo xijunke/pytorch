@@ -472,7 +472,14 @@ auto FunctionParameter::check(PyObject* obj, std::vector<py::handle> &overloaded
     }
     case ParameterType::INT_LIST: {
       if (PyTuple_Check(obj) || PyList_Check(obj)) {
-        return true;
+        if (PySequence_Size(obj) == 0) {
+          return true;
+        }
+        auto item = py::reinterpret_steal<py::object>(
+            PySequence_GetItem(obj, 0));
+        // NOTE: JIT tracer allows arbitrary scalar tensors to act as ints
+        // in an intlist argument Even float or complex scalars
+        return (THPVariable_Check(item.ptr()) || THPUtils_checkIndex(item.ptr()));
       }
       // if a size is specified (e.g. IntArrayRef[2]) we also allow passing a single int
       return size > 0 && THPUtils_checkLong(obj);
