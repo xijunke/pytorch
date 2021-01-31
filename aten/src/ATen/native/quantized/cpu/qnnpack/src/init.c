@@ -74,6 +74,8 @@ static void init(void) {
       .nr = 4,
       .kr = 4,
       .log2_mr = 3,
+      .row_block_size = 1,
+      .col_block_size = 4,
   };
   */
   pytorch_qnnp_params.q8gemm_sparse = (struct pytorch_q8gemm_sparse_parameters){
@@ -84,6 +86,8 @@ static void init(void) {
       .nr = 8,
       .kr = 4,
       .log2_mr = 2,
+      .row_block_size = 1,
+      .col_block_size = 4,
   };
 #if !PYTORCH_QNNPACK_RUNTIME_QUANTIZATION
   pytorch_qnnp_params.q8conv_xzp = (struct pytorch_q8conv_xzp_parameters){
@@ -164,6 +168,17 @@ static void init(void) {
   pytorch_qnnp_params.u8lut32norm = pytorch_u8lut32norm_ukernel__scalar;
   pytorch_qnnp_params.x8lut = pytorch_x8lut_ukernel__scalar;
 #elif CPUINFO_ARCH_ARM64
+  pytorch_qnnp_params.q8gemm_sparse = (struct pytorch_q8gemm_sparse_parameters){
+      .gemm_dq = NULL,
+      .packedA_gemm_dq = pytorch_q8gemm_dq_sparse_1x4_ukernel_8x8_packedA__aarch64_neon,
+      .packA = pytorch_q8gemm_sparse_packA_ukernel_8x4__aarch64_neon,
+      .mr = 8,
+      .nr = 8,
+      .kr = 4,
+      .log2_mr = 3,
+      .row_block_size = 1,
+      .col_block_size = 4,
+  };
   pytorch_qnnp_params.q8conv = (struct pytorch_q8conv_parameters){
       .gemm = pytorch_q8gemm_ukernel_8x8__aarch64_neon,
       .conv = pytorch_q8conv_ukernel_8x8__aarch64_neon,
@@ -240,6 +255,8 @@ static void init(void) {
       .nr = 4,
       .kr = 4,
       .log2_mr = 3,
+      .row_block_size = 1,
+      .col_block_size = 4,
   };
   pytorch_qnnp_params.q8conv_xzp = (struct pytorch_q8conv_xzp_parameters){
       .kthreshold = SIZE_MAX,

@@ -38,17 +38,20 @@ namespace {
       uint8_t* b,
       size_t N,
       size_t K,
-      size_t block_size,
+      size_t row_block_size,
+      size_t col_block_size,
       float sparsity,
       const uint8_t* zero_points) {
     std::random_device randomDevice;
     auto rng = std::mt19937(randomDevice());
     std::bernoulli_distribution dist{sparsity};
-    for (uint32_t n = 0; n < N ; ++n) {
-      for (uint32_t k = 0; k < K; k += block_size) {
+    for (uint32_t n = 0; n < N ; n += row_block_size) {
+      for (uint32_t k = 0; k < K; k += col_block_size) {
         if (dist(rng)) {
-          for (uint32_t l = 0; (l < block_size) && (k + l < K); ++l) {
-            *(b + n * K + k + l) = zero_points[n];
+          for (uint32_t nb = 0; (nb < row_block_size) && (n + nb < N); ++nb) {
+            for (uint32_t kb = 0; (kb < col_block_size) && (k + kb < K); ++kb) {
+              *(b + (n + nb) * K + k + kb) = zero_points[n];
+            }
           }
         }
       }
@@ -235,13 +238,20 @@ class Q8GEMMSparse : public benchmark::Fixture {
 
     std::generate(k_.begin(), k_.end(), std::ref(u8rng));
     fillBlockSparseWeights(
-        k_.data(), nc(), kc(), blockSize(), sparsity(), kernel_zero_points.data());
+        k_.data(),
+        nc(),
+        kc(),
+        rowBlockSize(),
+        colBlockSize(),
+        sparsity(),
+        kernel_zero_points.data());
     bcsr_matrix_ =
       qnnpack::generateBlockCSRMatrix(
           k_.data(),
           nc(),
           kc(),
-          blockSize(),
+          rowBlockSize(),
+          colBlockSize(),
           kernel_zero_points.data());
     std::vector<float> dequantization_scales(num_zero_points_kernel, 0.75f);
     c_.resize(mc() * nc());
@@ -311,8 +321,12 @@ class Q8GEMMSparse : public benchmark::Fixture {
     return roundUp(kc(), kr());
   }
 
-  inline size_t blockSize() const {
-    return this->block_size_;
+  inline size_t rowBlockSize() const {
+    return this->row_block_size_;
+  }
+
+  inline size_t colBlockSize() const {
+    return this->col_block_size_;
   }
 
   inline float sparsity() const {
@@ -336,7 +350,8 @@ class Q8GEMMSparse : public benchmark::Fixture {
   uint32_t mc_{mr_};
   uint32_t nc_{nr_};
   uint32_t kc_{kr_};
-  uint32_t block_size_{4};
+  uint32_t row_block_size_{1};
+  uint32_t col_block_size_{4};
   float sparsity_{0.7f};
   pytorch_qnnp_conv_dynamic_quantization_params quantizationParams_;
 };
@@ -562,6 +577,51 @@ BENCHMARK_TEMPLATE_DEFINE_F(Q8GEMM_Op, 8x8__aarch64_neon, 8, 8, 8, 1)
 
 BENCHMARK_REGISTER_F(Q8GEMM_Op, 8x8__aarch64_neon)
     ->Apply(SparseGEMMBenchGemmArguments);
+
+BENCHMARK_TEMPLATE_DEFINE_F(Q8GEMMSparse_Op, 8x8c1x4_prepacked__aarch64_neon, 8, 8, 4)
+(benchmark::State& state) {
+  for (auto _ : state) {
+    auto m_blocks = (mc() + mr()  - 1) / mr();
+    auto k_blocks = (kc() + 4  - 1) / 4;
+    std::vector<uint8_t> a_packed(m_blocks * k_blocks * mr() * 4 + 8);
+    for (uint32_t m = 0; m < mc(); m += mr()) {
+      const uint32_t mrr = min(mc() - m, mr());
+      for (uint32_t n = 0, channel_offset = 0; n < nc();
+          n += nr(), channel_offset += nr()) {
+        const uint32_t nrr = min(nc() - n, nr());
+        pytorch_q8gemm_sparse_packA_ukernel_8x4__aarch64_neon(
+            mrr,
+            kc(),
+            a() + m * kc(),
+            kc() * sizeof(uint8_t),
+            a_packed.data() + (m >> 3) * (k_blocks << 2) * mr()
+            );
+      }
+    }
+    for (uint32_t m = 0; m < mc(); m += mr()) {
+      const uint32_t mrr = min(mc() - m, mr());
+      for (uint32_t n = 0, channel_offset = 0; n < nc();
+          n += nr(), channel_offset += nr()) {
+        const uint32_t nrr = min(nc() - n, nr());
+        pytorch_q8gemm_dq_sparse_1x4_ukernel_8x8_packedA__aarch64_neon(
+            mrr,
+            nrr,
+            a_packed.data() + (m >> 3) * (k_blocks << 2) * mr(),
+            bcsr_matrix_->values.data(),
+            bcsr_matrix_->row_values.data(),
+            bcsr_matrix_->col_indices.data(),
+            b() + n,
+            c() + m * nc() + n,
+            nc(),
+            channel_offset,
+            quantizationParams());
+      }
+    }
+  }
+}
+BENCHMARK_REGISTER_F(Q8GEMMSparse_Op, 8x8c1x4_prepacked__aarch64_neon)
+    ->Apply(SparseGEMMBenchGemmArguments);
+
 #endif
 
 #ifndef PYTORCH_QNNPACK_BENCHMARK_NO_MAIN
